@@ -10,6 +10,7 @@ from numpy.lib.recfunctions import stack_arrays
 from numpy.testing import assert_almost_equal
 import time
 
+
 class ABCProcess(mp.Process):
     '''
 
@@ -19,6 +20,7 @@ class ABCProcess(mp.Process):
         np.random.seed()
         if self._target:
             self._target(*self._args, **self._kwargs)
+
 
 class Model(object):
     """
@@ -44,13 +46,13 @@ class Model(object):
         self.data = data
         self.data_sum_stats = self.summary_stats(self.data)
 
-    #TODO think about a beter way to handle prior functions
+    # TODO think about a beter way to handle prior functions
     def set_prior(self, prior):
         self.prior = prior
 
     def set_epsilon(self, epsilon):
         """
-        A method to give the model object the value of epsilon if your model 
+        A method to give the model object the value of epsilon if your model
         code needs to know it.
         """
         self.epsilon = epsilon
@@ -66,8 +68,8 @@ class Model(object):
 
         return d
 
-    #These methods handle the serialization of the frozen scipy.stats
-    #distributions used for the priors when running in parallel mode
+    # These methods handle the serialization of the frozen scipy.stats
+    # distributions used for the priors when running in parallel mode
     def __getstate__(self):
         '''
         Copies the state dict of the model and pulls the keyword arguements
@@ -77,20 +79,19 @@ class Model(object):
         result['prior'] = [p.kwds for p in self.prior]
         return result
 
-
     def __setstate__(self, state):
         '''
-        Reconstructs the frozen prior distributions with the keywords used to
-        make the oriniginal distribution objects acquired with self.__getstate__
+        Reconstructs the frozen prior distributions with the keywords
+        used to make the oriniginal distribution objects acquired with
+        self.__getstate__
         '''
         self.__dict__ = state
-        #Replace this line with calls to create the frozen distributions you
-        #are using for your prior, example:
+        # Replace this line with calls to create the frozen distributions you
+        # are using for your prior, example:
         #   new_prior = [stats.norm(**state['prior'][0]),
         #               stats.uniform(**state['prior'][1])]
         new_prior = []
         self.__dict__['prior'] = new_prior
-
 
     @abstractmethod
     def draw_theta(self):
@@ -130,9 +131,10 @@ class Model(object):
         summary statistics as an argument (nominally the observed summary
         statistics and .
         """
-################################################################################
-#########################    ABC Algorithms   ##################################
-################################################################################
+# ============================================================================
+# ======================    ABC Algorithms   =================================
+# ============================================================================
+
 
 def basic_abc(model, data, epsilon=1, min_samples=10,
               parallel=False, n_procs='all', pmc_mode=False,
@@ -210,10 +212,8 @@ def basic_abc(model, data, epsilon=1, min_samples=10,
 
     """
 
-
     posterior, rejected, distances = [], [], []
     trial_count, accepted_count = 0, 0
-
 
     data_summary_stats = model.summary_stats(data)
     model.set_epsilon(epsilon)
@@ -227,9 +227,8 @@ def basic_abc(model, data, epsilon=1, min_samples=10,
                                     replace=True, p=weights/weights.sum())]
 
             theta = stats.multivariate_normal.rvs(theta_star, tau_squared)
-            if np.isscalar(theta) == True:
+            if np.isscalar(theta) is True:
                 theta = [theta]
-
 
         else:
             theta = model.draw_theta()
@@ -247,7 +246,7 @@ def basic_abc(model, data, epsilon=1, min_samples=10,
 
         else:
             pass
-            #rejected.append(theta)
+            # rejected.append(theta)
 
     posterior = np.asarray(posterior).T
 
@@ -255,7 +254,6 @@ def basic_abc(model, data, epsilon=1, min_samples=10,
         n = posterior.shape[1]
     else:
         n = posterior.shape[0]
-
 
     weights = np.ones(n)
     tau_squared = np.zeros((posterior.shape[0], posterior.shape[0]))
@@ -267,7 +265,7 @@ def basic_abc(model, data, epsilon=1, min_samples=10,
 
 
 def pmc_abc(model, data, epsilon_0=1, min_samples=10,
-            steps=10, resume=None, parallel=False, n_procs='all', 
+            steps=10, resume=None, parallel=False, n_procs='all',
             sample_only=False):
     """
     Perform a sequence of ABC posterior approximations using the sequential
@@ -328,7 +326,7 @@ def pmc_abc(model, data, epsilon_0=1, min_samples=10,
     """
 
     output_record = np.empty(steps, dtype=[('theta accepted', object),
-                                           #('theta rejected', object),
+                                           # ('theta rejected', object),
                                            ('D accepted', object),
                                            ('n accepted', float),
                                            ('n total', float),
@@ -338,12 +336,12 @@ def pmc_abc(model, data, epsilon_0=1, min_samples=10,
                                            ('eff sample size', object),
                                            ])
 
-    if resume != None:
+    if resume is not None:
         steps = xrange(resume.size, resume.size + steps)
         output_record = stack_arrays((resume, output_record), asrecarray=True,
                                      usemask=False)
         epsilon = stats.scoreatpercentile(resume[-1]['D accepted'],
-                                              per=75)
+                                          per=75)
         theta = resume['theta accepted'][-1]
         weights = resume['weights'][-1]
         tau_squared = resume['tau_squared'][-1]
@@ -355,7 +353,7 @@ def pmc_abc(model, data, epsilon_0=1, min_samples=10,
     for step in steps:
         print 'Starting step {}'.format(step)
         if step == 0:
-        #Fist ABC calculation
+            # First ABC calculation
 
             if parallel:
                 if n_procs == 'all':
@@ -371,7 +369,7 @@ def pmc_abc(model, data, epsilon_0=1, min_samples=10,
                                         kwargs={'epsilon': epsilon,
                                                 'min_samples': chunk,
                                                 'pmc_mode': False})
-                                        for i in xrange(n_procs)]
+                             for i in xrange(n_procs)]
 
                 for p in processes:
                     p.start()
@@ -383,27 +381,25 @@ def pmc_abc(model, data, epsilon_0=1, min_samples=10,
 
             else:
 
-
                 output_record[step] = basic_abc(model, data, epsilon=epsilon,
-                                            min_samples=min_samples,
-                                            parallel=False, pmc_mode=False)
+                                                min_samples=min_samples,
+                                                parallel=False, pmc_mode=False)
 
             theta = output_record[step]['theta accepted']
-            #print theta.shape
+            # print theta.shape
             tau_squared = 2 * np.cov(theta)
-            #print tau_squared
+            # print tau_squared
             weights = np.ones(theta.shape[1]) * 1.0/theta.shape[1]
-            #print weights
-            epsilon = stats.scoreatpercentile(output_record[step]['D accepted'],
-                                              per=75)
+            # print weights
+            epsilon = stats.scoreatpercentile(
+                            output_record[step]['D accepted'], per=75)
 
             output_record[step]['weights'] = weights
             output_record[step]['tau_squared'] = tau_squared
 
-
         else:
-            #print weights, tau_squared
-            #print theta
+            # print weights, tau_squared
+            # print theta
             theta_prev = theta
             weights_prev = weights
 
@@ -424,7 +420,7 @@ def pmc_abc(model, data, epsilon_0=1, min_samples=10,
                                                 'weights': weights,
                                                 'theta_prev': theta_prev,
                                                 'tau_squared': tau_squared})
-                                        for i in xrange(n_procs)]
+                             for i in xrange(n_procs)]
 
                 for p in processes:
                     p.start()
@@ -437,28 +433,28 @@ def pmc_abc(model, data, epsilon_0=1, min_samples=10,
             else:
 
                 output_record[step] = basic_abc(model, data, epsilon=epsilon,
-                                            min_samples =min_samples,
-                                            parallel=False,
-                                            n_procs=n_procs, pmc_mode=True,
-                                            weights=weights,
-                                            theta_prev=theta_prev,
-                                            tau_squared=tau_squared)
+                                                min_samples=min_samples,
+                                                parallel=False,
+                                                n_procs=n_procs, pmc_mode=True,
+                                                weights=weights,
+                                                theta_prev=theta_prev,
+                                                tau_squared=tau_squared)
 
             theta = output_record[step]['theta accepted']
-            epsilon = stats.scoreatpercentile(output_record[step]['D accepted'],
-                                              per=75)
+            epsilon = stats.scoreatpercentile(
+                            output_record[step]['D accepted'], per=75)
 
-            #print theta
+            # print theta
 
-            #print theta_prev
+            # print theta_prev
             effective_sample = effective_sample_size(weights_prev)
 
             if sample_only:
                 weights = []
                 tau_squared = []
             else:
-                weights = calc_weights(theta_prev, theta, tau_squared, 
-                                        weights_prev, prior=model.prior)
+                weights = calc_weights(theta_prev, theta, tau_squared,
+                                       weights_prev, prior=model.prior)
                 tau_squared = 2 * weighted_covar(theta, weights)
 
             output_record[step]['tau_squared'] = tau_squared
@@ -468,6 +464,7 @@ def pmc_abc(model, data, epsilon_0=1, min_samples=10,
             output_record[step]['weights'] = weights
 
     return output_record
+
 
 def calc_weights(theta_prev, theta, tau_squared, weights, prior="None"):
     """
@@ -479,10 +476,10 @@ def calc_weights(theta_prev, theta, tau_squared, weights, prior="None"):
         norm = np.zeros_like(theta)
         for i, T in enumerate(theta):
             for j in xrange(theta_prev[0].size):
-                #print T, theta_prev[0][j], tau_squared
-                #print type(T), type(theta_prev), type(tau_squared)
+                # print T, theta_prev[0][j], tau_squared
+                # print type(T), type(theta_prev), type(tau_squared)
                 norm[j] = stats.norm.pdf(T, loc=theta_prev[0][j],
-                                     scale=tau_squared)
+                                         scale=tau_squared)
             weights_new[i] = prior[0].pdf(T)/sum(weights * norm)
 
         return weights_new/weights_new.sum()
@@ -492,9 +489,9 @@ def calc_weights(theta_prev, theta, tau_squared, weights, prior="None"):
         for i in xrange(theta.shape[1]):
             prior_prob = np.zeros(theta[:, i].size)
             for j in xrange(theta[:, i].size):
-                #print theta[:, i][j]
+                # print theta[:, i][j]
                 prior_prob[j] = prior[j].pdf(theta[:, i][j])
-            #assumes independent priors
+            # assumes independent priors
             p = prior_prob.prod()
 
             for j in xrange(theta_prev.shape[1]):
@@ -505,6 +502,7 @@ def calc_weights(theta_prev, theta, tau_squared, weights, prior="None"):
             weights_new[i] = p/sum(weights * norm)
 
         return weights_new/weights_new.sum()
+
 
 def weighted_covar(x, w):
     """
@@ -521,7 +519,6 @@ def weighted_covar(x, w):
         assert x.shape[1] == w.size
     sum2 = np.sum(w**2)
 
-
     if len(x.shape) == 1:
         xbar = (w*x).sum()
         var = sum(w * (x - xbar)**2)
@@ -532,9 +529,10 @@ def weighted_covar(x, w):
         for k in xrange(x.shape[0]):
             for j in xrange(x.shape[0]):
                 for i in xrange(x.shape[1]):
-                    covar[j,k] += (x[j,i]-xbar[j])*(x[k,i]-xbar[k]) * w[i]
+                    covar[j, k] += (x[j, i]-xbar[j])*(x[k, i]-xbar[k]) * w[i]
 
         return covar * sumw/(sumw*sumw-sum2)
+
 
 def effective_sample_size(w):
     """
@@ -544,8 +542,9 @@ def effective_sample_size(w):
     """
 
     sumw = sum(w)
-    sum2 = sum (w**2)
+    sum2 = sum(w**2)
     return sumw*sumw/sum2
+
 
 def combine_parallel_output(x):
     """
@@ -566,13 +565,14 @@ def combine_parallel_output(x):
     tau_squared = x[0][6]
     eff_sample = x[0][7]
     return (posterior, distances,
-                accepted_count, trial_count,
-                epsilon, weights, tau_squared, eff_sample)
+            accepted_count, trial_count,
+            epsilon, weights, tau_squared, eff_sample)
 
 
 def parallel_basic_abc(data, model, output, **kwds):
     """
-    Wrapper for running basic_abc in parallel and putting the outputs in a queue
+    Wrapper for running basic_abc in parallel and putting the outputs
+    in a queue
     :param data: same as basic_abc
     :param model: same as basic_abc
     :param output: multiprocess queue object
