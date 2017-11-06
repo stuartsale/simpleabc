@@ -7,8 +7,8 @@ import multiprocessing as mp
 import numpy as np
 from scipy import stats
 from numpy.lib.recfunctions import stack_arrays
-from numpy.testing import assert_almost_equal
-import time
+
+from simpleabc.util import calc_weights, weighted_covar, effective_sample_size
 
 
 class ABCProcess(mp.Process):
@@ -21,116 +21,6 @@ class ABCProcess(mp.Process):
         if self._target:
             self._target(*self._args, **self._kwargs)
 
-
-class Model(object):
-    """
-    Base class for constructing models for approximate bayesian computing
-    and various uses limited only by the user's imagination.
-
-    WARNING!! Not meant for direct use! You must implement your own model as a
-    subclass and override the all following methods:
-
-    * Model.draw_theta
-    * Model.generate_data
-    * Model.summary_stats
-    * Model.distance_function
-
-    """
-
-    __metaclass__ = ABCMeta
-
-    def __call__(self, theta):
-        return self.generate_data_and_reduce(theta)
-
-    def set_data(self, data):
-        self.data = data
-        self.data_sum_stats = self.summary_stats(self.data)
-
-    # TODO think about a beter way to handle prior functions
-    def set_prior(self, prior):
-        self.prior = prior
-
-    def set_epsilon(self, epsilon):
-        """
-        A method to give the model object the value of epsilon if your model
-        code needs to know it.
-        """
-        self.epsilon = epsilon
-
-    def generate_data_and_reduce(self, theta):
-        """
-        A combined method for generating data, calculating summary statistics
-        and evaluating the distance function all at once.
-        """
-        synth = self.generate_data(theta)
-        sum_stats = self.summary_stats(synth)
-        d = self.distance_function(sum_stats, self.data_sum_stats)
-
-        return d
-
-    # These methods handle the serialization of the frozen scipy.stats
-    # distributions used for the priors when running in parallel mode
-    def __getstate__(self):
-        '''
-        Copies the state dict of the model and pulls the keyword arguements
-        out of self.prior to send to self.__setstate__
-        '''
-        result = self.__dict__.copy()
-        result['prior'] = [p.kwds for p in self.prior]
-        return result
-
-    def __setstate__(self, state):
-        '''
-        Reconstructs the frozen prior distributions with the keywords
-        used to make the oriniginal distribution objects acquired with
-        self.__getstate__
-        '''
-        self.__dict__ = state
-        # Replace this line with calls to create the frozen distributions you
-        # are using for your prior, example:
-        #   new_prior = [stats.norm(**state['prior'][0]),
-        #               stats.uniform(**state['prior'][1])]
-        new_prior = []
-        self.__dict__['prior'] = new_prior
-
-    @abstractmethod
-    def draw_theta(self):
-        """
-        Sub-classable method for drawing from a prior distribution.
-
-        This method should return an array-like iterable that is a vector of
-        proposed model parameters from your prior distribution.
-        """
-
-    @abstractmethod
-    def generate_data(self, theta):
-        """
-        Sub-classable method for generating synthetic data sets from forward
-        model.
-
-        This method should return an array/matrix/table of simulated data
-        taking vector theta as an argument.
-        """
-
-    @abstractmethod
-    def summary_stats(self, data):
-        """
-        Sub-classable method for computing summary statistics.
-
-        This method should return an array-like iterable of summary statistics
-        taking an array/matrix/table as an argument.
-        """
-
-    @abstractmethod
-    def distance_function(self, summary_stats, summary_stats_synth):
-        """
-        Sub-classable method for computing a distance function.
-
-        This method should return a distance D of for comparing to the
-        acceptance tolerance (epsilon) taking two array-like iterables of
-        summary statistics as an argument (nominally the observed summary
-        statistics and .
-        """
 # ============================================================================
 # ======================    ABC Algorithms   =================================
 # ============================================================================
@@ -464,86 +354,6 @@ def pmc_abc(model, data, epsilon_0=1, min_samples=10,
             output_record[step]['weights'] = weights
 
     return output_record
-
-
-def calc_weights(theta_prev, theta, tau_squared, weights, prior="None"):
-    """
-    Calculates importance weights
-    """
-    weights_new = np.zeros_like(weights)
-
-    if len(theta.shape) == 1:
-        norm = np.zeros_like(theta)
-        for i, T in enumerate(theta):
-            for j in xrange(theta_prev[0].size):
-                # print T, theta_prev[0][j], tau_squared
-                # print type(T), type(theta_prev), type(tau_squared)
-                norm[j] = stats.norm.pdf(T, loc=theta_prev[0][j],
-                                         scale=tau_squared)
-            weights_new[i] = prior[0].pdf(T)/sum(weights * norm)
-
-        return weights_new/weights_new.sum()
-
-    else:
-        norm = np.zeros(theta_prev.shape[1])
-        for i in xrange(theta.shape[1]):
-            prior_prob = np.zeros(theta[:, i].size)
-            for j in xrange(theta[:, i].size):
-                # print theta[:, i][j]
-                prior_prob[j] = prior[j].pdf(theta[:, i][j])
-            # assumes independent priors
-            p = prior_prob.prod()
-
-            for j in xrange(theta_prev.shape[1]):
-                norm[j] = stats.multivariate_normal.pdf(theta[:, i],
-                                                        mean=theta_prev[:, j],
-                                                        cov=tau_squared)
-
-            weights_new[i] = p/sum(weights * norm)
-
-        return weights_new/weights_new.sum()
-
-
-def weighted_covar(x, w):
-    """
-    Calculates weighted covariance matrix
-    :param x: 1 or 2 dimensional array-like, values
-    :param w: 1 dimensional array-like, weights
-    :return C: Weighted covariance of x or weighted variance if x is 1d
-    """
-    sumw = w.sum()
-    assert_almost_equal(sumw, 1.0)
-    if len(x.shape) == 1:
-        assert x.shape[0] == w.size
-    else:
-        assert x.shape[1] == w.size
-    sum2 = np.sum(w**2)
-
-    if len(x.shape) == 1:
-        xbar = (w*x).sum()
-        var = sum(w * (x - xbar)**2)
-        return var * sumw/(sumw*sumw-sum2)
-    else:
-        xbar = [(w*x[i]).sum() for i in xrange(x.shape[0])]
-        covar = np.zeros((x.shape[0], x.shape[0]))
-        for k in xrange(x.shape[0]):
-            for j in xrange(x.shape[0]):
-                for i in xrange(x.shape[1]):
-                    covar[j, k] += (x[j, i]-xbar[j])*(x[k, i]-xbar[k]) * w[i]
-
-        return covar * sumw/(sumw*sumw-sum2)
-
-
-def effective_sample_size(w):
-    """
-    Calculates effective sample size
-    :param w: array-like importance sampleing weights
-    :return: float, effective sample size
-    """
-
-    sumw = sum(w)
-    sum2 = sum(w**2)
-    return sumw*sumw/sum2
 
 
 def combine_parallel_output(x):
