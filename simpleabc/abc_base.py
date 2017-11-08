@@ -156,7 +156,7 @@ def basic_abc(model, data, epsilon=1, min_samples=10,
 
 def pmc_abc(model, data, epsilon_0=1, min_samples=10,
             steps=10, resume=None, parallel=False, n_procs='all',
-            sample_only=False):
+            sample_only=False, target_epsilon=0.):
     """
     Perform a sequence of ABC posterior approximations using the sequential
     population Monte Carlo algorithm.
@@ -181,6 +181,9 @@ def pmc_abc(model, data, epsilon_0=1, min_samples=10,
     n_procs : int, str, optional
         Number of subprocesses in parallel mode. Default is 'all' one for each
         available core.
+    target_epsilon : float
+        If this value of epsilon is reached the sampling is stopped at that
+        pmc step, even if the number of steps is less than steps.
 
     Returns
     -------
@@ -241,7 +244,7 @@ def pmc_abc(model, data, epsilon_0=1, min_samples=10,
         epsilon = epsilon_0
 
     for step in steps:
-        print 'Starting step {}'.format(step)
+        print 'Starting step {0}, epsilon={1:.5f}'.format(step, epsilon)
         if step == 0:
             # First ABC calculation
 
@@ -281,8 +284,6 @@ def pmc_abc(model, data, epsilon_0=1, min_samples=10,
             # print tau_squared
             weights = np.ones(theta.shape[1]) * 1.0/theta.shape[1]
             # print weights
-            epsilon = stats.scoreatpercentile(
-                            output_record[step]['D accepted'], per=75)
 
             output_record[step]['weights'] = weights
             output_record[step]['tau_squared'] = tau_squared
@@ -331,8 +332,6 @@ def pmc_abc(model, data, epsilon_0=1, min_samples=10,
                                                 tau_squared=tau_squared)
 
             theta = output_record[step]['theta accepted']
-            epsilon = stats.scoreatpercentile(
-                            output_record[step]['D accepted'], per=75)
 
             # print theta
 
@@ -352,6 +351,14 @@ def pmc_abc(model, data, epsilon_0=1, min_samples=10,
             output_record[step]['eff sample size'] = effective_sample
 
             output_record[step]['weights'] = weights
+
+        # stop if target epsilon has been reached
+        if epsilon < target_epsilon:
+            output_record = output_record[: step+1]
+            break
+
+        epsilon = stats.scoreatpercentile(
+                            output_record[step]['D accepted'], per=75)
 
     return output_record
 
