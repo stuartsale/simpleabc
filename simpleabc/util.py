@@ -29,12 +29,7 @@ def calc_weights(theta_prev, theta, tau_squared, weights, prior="None"):
     else:
         norm = np.zeros(theta_prev.shape[1])
         for i in xrange(theta.shape[1]):
-            prior_prob = np.zeros(theta[:, i].size)
-            for j in xrange(theta[:, i].size):
-                # print theta[:, i][j]
-                prior_prob[j] = prior[j].pdf(theta[:, i][j])
-            # assumes independent priors
-            p = prior_prob.prod()
+            p = prior.pdf(theta[:, i])
 
             for j in xrange(theta_prev.shape[1]):
                 norm[j] = stats.multivariate_normal.pdf(theta[:, i],
